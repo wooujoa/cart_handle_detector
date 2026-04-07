@@ -11,7 +11,6 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 
 from geometry_msgs.msg import PointStamped, PoseStamped, Point
-from std_msgs.msg import Float64
 from visualization_msgs.msg import Marker, MarkerArray
 
 import tf2_ros
@@ -36,11 +35,12 @@ class CartHandleGoalPoseSelectorZed(Node):
         # ==================================================
         self.declare_parameter('input_points_topic', '/cart_handle/blue_points_zed')
 
-        self.declare_parameter('output_center_topic', '/cart_handle/handle_center_base')
-        self.declare_parameter('output_handle_yaw_topic', '/cart_handle/handle_yaw')
-        self.declare_parameter('output_goal_pose_topic', '/cart_handle/goal_pose_base')
-        self.declare_parameter('output_goal_theta_topic', '/cart_handle/goal_theta')
+        # 최종 출력: x=d0.x, y=d0.y, z=goal_theta
+        self.declare_parameter('output_topic', '/cart_handle/handle_pose_base')
+
+        # debug / viz 용
         self.declare_parameter('output_marker_topic', '/cart_handle/goal_pose_markers')
+        self.declare_parameter('output_goal_pose_topic', '/cart_handle/goal_pose_base')
 
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('head_frame', 'head_link2')
@@ -53,16 +53,16 @@ class CartHandleGoalPoseSelectorZed(Node):
         self.declare_parameter('process_timer_sec', 0.02)
 
         # z constraint
-        self.declare_parameter('z_min_m', 0.90)
-        self.declare_parameter('z_max_m', 0.99)
+        self.declare_parameter('z_min_m', 0.80)
+        self.declare_parameter('z_max_m', 1.00)
 
         # point spacing rule
         self.declare_parameter('dist_d0_d1_m', 0.05)
         self.declare_parameter('dist_d1_d2_m', 0.17)
         self.declare_parameter('dist_d0_d2_m', 0.22)
 
-        self.declare_parameter('dist_tol_m', 0.03)
-        self.declare_parameter('line_tol_m', 0.02)
+        self.declare_parameter('dist_tol_m', 0.05)
+        self.declare_parameter('line_tol_m', 0.03)
 
         # robot goal offset from d0 toward basket-less side
         self.declare_parameter('standoff_m', 0.45)
@@ -72,12 +72,9 @@ class CartHandleGoalPoseSelectorZed(Node):
         self.declare_parameter('print_tf_matrix', False)
 
         self.input_points_topic = self.get_parameter('input_points_topic').value
-
-        self.output_center_topic = self.get_parameter('output_center_topic').value
-        self.output_handle_yaw_topic = self.get_parameter('output_handle_yaw_topic').value
-        self.output_goal_pose_topic = self.get_parameter('output_goal_pose_topic').value
-        self.output_goal_theta_topic = self.get_parameter('output_goal_theta_topic').value
+        self.output_topic = self.get_parameter('output_topic').value
         self.output_marker_topic = self.get_parameter('output_marker_topic').value
+        self.output_goal_pose_topic = self.get_parameter('output_goal_pose_topic').value
 
         self.base_frame = self.get_parameter('base_frame').value
         self.head_frame = self.get_parameter('head_frame').value
@@ -125,30 +122,29 @@ class CartHandleGoalPoseSelectorZed(Node):
             100
         )
 
-        self.pub_center = self.create_publisher(PointStamped, self.output_center_topic, 10)
-        self.pub_handle_yaw = self.create_publisher(Float64, self.output_handle_yaw_topic, 10)
+        # 최종 출력 하나만 사용
+        self.pub = self.create_publisher(PointStamped, self.output_topic, 10)
+
+        # 디버그용 유지
         self.pub_goal_pose = self.create_publisher(PoseStamped, self.output_goal_pose_topic, 10)
-        self.pub_goal_theta = self.create_publisher(Float64, self.output_goal_theta_topic, 10)
         self.pub_markers = self.create_publisher(MarkerArray, self.output_marker_topic, 10)
 
         self.timer = self.create_timer(self.process_timer_sec, self.process_pending_frames)
 
         self.get_logger().info('========================================')
         self.get_logger().info('Cart Handle Goal Pose Selector ZED Initialized')
-        self.get_logger().info(f'input_points_topic       : {self.input_points_topic}')
-        self.get_logger().info(f'output_center_topic      : {self.output_center_topic}')
-        self.get_logger().info(f'output_handle_yaw_topic  : {self.output_handle_yaw_topic}')
-        self.get_logger().info(f'output_goal_pose_topic   : {self.output_goal_pose_topic}')
-        self.get_logger().info(f'output_goal_theta_topic  : {self.output_goal_theta_topic}')
-        self.get_logger().info(f'output_marker_topic      : {self.output_marker_topic}')
-        self.get_logger().info(f'base_frame               : {self.base_frame}')
-        self.get_logger().info(f'head_frame               : {self.head_frame}')
-        self.get_logger().info(f'z range                  : [{self.z_min_m:.3f}, {self.z_max_m:.3f}]')
+        self.get_logger().info(f'input_points_topic : {self.input_points_topic}')
+        self.get_logger().info(f'output_topic       : {self.output_topic}')
+        self.get_logger().info(f'output_goal_pose   : {self.output_goal_pose_topic}')
+        self.get_logger().info(f'output_marker_topic: {self.output_marker_topic}')
+        self.get_logger().info(f'base_frame         : {self.base_frame}')
+        self.get_logger().info(f'head_frame         : {self.head_frame}')
+        self.get_logger().info(f'z range            : [{self.z_min_m:.3f}, {self.z_max_m:.3f}]')
         self.get_logger().info(
-            f'target distances         : d0-d1={self.dist_d0_d1_m:.3f}, '
+            f'target distances   : d0-d1={self.dist_d0_d1_m:.3f}, '
             f'd1-d2={self.dist_d1_d2_m:.3f}, d0-d2={self.dist_d0_d2_m:.3f}'
         )
-        self.get_logger().info(f'standoff_m               : {self.standoff_m:.3f}')
+        self.get_logger().info(f'standoff_m         : {self.standoff_m:.3f}')
         self.get_logger().info('========================================')
 
     # ==================================================
@@ -215,10 +211,6 @@ class CartHandleGoalPoseSelectorZed(Node):
                 f'[FRAME PROCESS] z_filtered={len(z_filtered)} / {len(points_base)} '
                 f'within [{self.z_min_m:.3f}, {self.z_max_m:.3f}]'
             )
-            for idx, p in z_filtered:
-                self.get_logger().info(
-                    f'  z_keep idx={idx} base_xyz=({p.point.x:.4f}, {p.point.y:.4f}, {p.point.z:.4f})'
-                )
 
         if len(z_filtered) < 3:
             if self.debug:
@@ -262,15 +254,11 @@ class CartHandleGoalPoseSelectorZed(Node):
 
         self.get_logger().info(
             '[CART HANDLE RESULT]\n'
-            f'  d0(center)   = ({d0.point.x:.4f}, {d0.point.y:.4f}, {d0.point.z:.4f})\n'
-            f'  d1           = ({d1.point.x:.4f}, {d1.point.y:.4f}, {d1.point.z:.4f})\n'
-            f'  d2           = ({d2.point.x:.4f}, {d2.point.y:.4f}, {d2.point.z:.4f})\n'
-            f'  handle_yaw   = {handle_yaw:.6f} rad ({math.degrees(handle_yaw):.2f} deg)\n'
-            f'  goal_pos     = ({goal_x:.4f}, {goal_y:.4f})\n'
-            f'  goal_theta   = {goal_theta:.6f} rad ({math.degrees(goal_theta):.2f} deg)\n'
-            f'  d0-d1        = {self.distance_3d(d0, d1):.4f}\n'
-            f'  d1-d2        = {self.distance_3d(d1, d2):.4f}\n'
-            f'  d0-d2        = {self.distance_3d(d0, d2):.4f}'
+            f'  d0(center) = ({d0.point.x:.4f}, {d0.point.y:.4f}, {d0.point.z:.4f})\n'
+            f'  d1         = ({d1.point.x:.4f}, {d1.point.y:.4f}, {d1.point.z:.4f})\n'
+            f'  d2         = ({d2.point.x:.4f}, {d2.point.y:.4f}, {d2.point.z:.4f})\n'
+            f'  handle_yaw = {handle_yaw:.6f} rad ({math.degrees(handle_yaw):.2f} deg)\n'
+            f'  goal_theta = {goal_theta:.6f} rad ({math.degrees(goal_theta):.2f} deg)'
         )
 
     def select_best_triplet(self, points: List[PointStamped]) -> Optional[Tuple[PointStamped, PointStamped, PointStamped]]:
@@ -278,40 +266,56 @@ class CartHandleGoalPoseSelectorZed(Node):
         best_triplet = None
 
         for triplet in itertools.combinations(points, 3):
-            # d0 = x minimum, d2 = x maximum
-            ordered = sorted(triplet, key=lambda p: p.point.x)
-            d0, d1, d2 = ordered[0], ordered[1], ordered[2]
+            p0, p1, p2 = triplet
+            cand = [p0, p1, p2]
 
-            dist_01 = self.distance_3d(d0, d1)
-            dist_12 = self.distance_3d(d1, d2)
-            dist_02 = self.distance_3d(d0, d2)
+            # 세 점 중 어떤 점이 중간점(d1)인지 모두 시험
+            for mid_idx in range(3):
+                d1 = cand[mid_idx]
+                others = [cand[i] for i in range(3) if i != mid_idx]
+                a, b = others[0], others[1]
 
-            err_01 = abs(dist_01 - self.dist_d0_d1_m)
-            err_12 = abs(dist_12 - self.dist_d1_d2_m)
-            err_02 = abs(dist_02 - self.dist_d0_d2_m)
+                dist_a = self.distance_3d(d1, a)
+                dist_b = self.distance_3d(d1, b)
 
-            if err_01 > self.dist_tol_m or err_12 > self.dist_tol_m or err_02 > self.dist_tol_m:
-                continue
+                # d1에서 5cm쪽을 d0, 17cm쪽을 d2로 배정
+                err_case1 = abs(dist_a - self.dist_d0_d1_m) + abs(dist_b - self.dist_d1_d2_m)
+                err_case2 = abs(dist_b - self.dist_d0_d1_m) + abs(dist_a - self.dist_d1_d2_m)
 
-            line_err = self.middle_point_line_error(d0, d1, d2)
-            if line_err > self.line_tol_m:
-                continue
+                if err_case1 <= err_case2:
+                    d0, d2 = a, b
+                    err_01 = abs(dist_a - self.dist_d0_d1_m)
+                    err_12 = abs(dist_b - self.dist_d1_d2_m)
+                else:
+                    d0, d2 = b, a
+                    err_01 = abs(dist_b - self.dist_d0_d1_m)
+                    err_12 = abs(dist_a - self.dist_d1_d2_m)
 
-            score = (
-                3.0 * (err_01 + err_12 + err_02) +
-                2.0 * line_err
-            )
+                dist_02 = self.distance_3d(d0, d2)
+                err_02 = abs(dist_02 - self.dist_d0_d2_m)
 
-            if self.debug:
-                self.get_logger().info(
-                    f'[TRIPLET CAND] '
-                    f'd0-d1={dist_01:.4f}, d1-d2={dist_12:.4f}, d0-d2={dist_02:.4f}, '
-                    f'line_err={line_err:.4f}, score={score:.4f}'
-                )
+                if err_01 > self.dist_tol_m or err_12 > self.dist_tol_m or err_02 > self.dist_tol_m:
+                    continue
 
-            if score < best_score:
-                best_score = score
-                best_triplet = (d0, d1, d2)
+                line_err = self.middle_point_line_error(d0, d1, d2)
+                if line_err > self.line_tol_m:
+                    continue
+
+                score = 3.0 * (err_01 + err_12 + err_02) + 2.0 * line_err
+
+                if self.debug:
+                    self.get_logger().info(
+                        f'[TRIPLET CAND] '
+                        f'd0-d1={self.distance_3d(d0,d1):.4f}, '
+                        f'd1-d2={self.distance_3d(d1,d2):.4f}, '
+                        f'd0-d2={dist_02:.4f}, '
+                        f'line_err={line_err:.4f}, '
+                        f'score={score:.4f}'
+                    )
+
+                if score < best_score:
+                    best_score = score
+                    best_triplet = (d0, d1, d2)
 
         return best_triplet
 
@@ -386,25 +390,18 @@ class CartHandleGoalPoseSelectorZed(Node):
         out_msg.point.y = float(p_base[1])
         out_msg.point.z = float(p_base[2])
 
-        if self.debug:
-            self.get_logger().info(
-                f'[TRANSFORM] cam=({p_cam[0]:.4f}, {p_cam[1]:.4f}, {p_cam[2]:.4f}) '
-                f'-> base=({out_msg.point.x:.4f}, {out_msg.point.y:.4f}, {out_msg.point.z:.4f})'
-            )
-
         return out_msg
 
     def lookup_base_from_head(self, msg: PointStamped):
         if self.use_msg_timestamp:
             try:
                 target_time = Time.from_msg(msg.header.stamp)
-                tf_msg = self.tf_buffer.lookup_transform(
+                return self.tf_buffer.lookup_transform(
                     self.base_frame,
                     self.head_frame,
                     target_time,
                     timeout=Duration(seconds=self.tf_timeout_sec)
                 )
-                return tf_msg
             except tf2_ros.ExtrapolationException as e:
                 self.get_logger().warn(f'[TF] msg timestamp extrapolation failed, fallback to latest. detail={e}')
             except (tf2_ros.LookupException, tf2_ros.ConnectivityException) as e:
@@ -419,10 +416,8 @@ class CartHandleGoalPoseSelectorZed(Node):
                 Time(),
                 timeout=Duration(seconds=self.tf_timeout_sec)
             )
-
             if self.print_tf_matrix:
                 self.print_tf_debug(tf_msg)
-
             return tf_msg
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
             self.get_logger().warn(f'[TF] latest lookup failed: {e}')
@@ -500,26 +495,23 @@ class CartHandleGoalPoseSelectorZed(Node):
         goal_theta: float,
         robot_side_yaw: float,
     ):
-        # center
-        center_msg = PointStamped()
-        center_msg.header = d0.header
-        center_msg.header.frame_id = self.base_frame
-        center_msg.point.x = d0.point.x
-        center_msg.point.y = d0.point.y
-        center_msg.point.z = d0.point.z
-        self.pub_center.publish(center_msg)
+        # --------------------------------------------------
+        # 최종 출력:
+        #   x = d0.x
+        #   y = d0.y
+        #   z = goal_theta
+        # --------------------------------------------------
+        out = PointStamped()
+        out.header = d0.header
+        out.header.frame_id = self.base_frame
+        out.point.x = float(d0.point.x)
+        out.point.y = float(d0.point.y)
+        out.point.z = float(goal_theta)
+        self.pub.publish(out)
 
-        # handle yaw
-        handle_yaw_msg = Float64()
-        handle_yaw_msg.data = float(handle_yaw)
-        self.pub_handle_yaw.publish(handle_yaw_msg)
-
-        # goal theta
-        goal_theta_msg = Float64()
-        goal_theta_msg.data = float(goal_theta)
-        self.pub_goal_theta.publish(goal_theta_msg)
-
-        # goal pose
+        # --------------------------------------------------
+        # 디버그용 goal pose
+        # --------------------------------------------------
         goal_pose = PoseStamped()
         goal_pose.header = d0.header
         goal_pose.header.frame_id = self.base_frame
@@ -534,10 +526,11 @@ class CartHandleGoalPoseSelectorZed(Node):
         goal_pose.pose.orientation.w = qw
         self.pub_goal_pose.publish(goal_pose)
 
+        # --------------------------------------------------
         # RViz markers
+        # --------------------------------------------------
         markers = MarkerArray()
 
-        # d0, d1, d2 spheres
         pts = [d0, d1, d2]
         colors = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
         for i, (p, c) in enumerate(zip(pts, colors)):
@@ -561,7 +554,6 @@ class CartHandleGoalPoseSelectorZed(Node):
             mk.color.b = c[2]
             markers.markers.append(mk)
 
-        # line strip d0-d1-d2
         line = Marker()
         line.header.frame_id = self.base_frame
         line.header.stamp = d0.header.stamp
@@ -578,7 +570,6 @@ class CartHandleGoalPoseSelectorZed(Node):
         line.points = [d0.point, d1.point, d2.point]
         markers.markers.append(line)
 
-        # handle vector arrow (d0 -> d2 direction, from d0)
         markers.markers.append(
             self.make_arrow_marker(
                 marker_id=20,
@@ -594,7 +585,6 @@ class CartHandleGoalPoseSelectorZed(Node):
             )
         )
 
-        # basket-less side arrow from d0 (robot side / offset direction)
         markers.markers.append(
             self.make_arrow_marker(
                 marker_id=21,
@@ -610,7 +600,6 @@ class CartHandleGoalPoseSelectorZed(Node):
             )
         )
 
-        # goal position sphere
         goal_sphere = Marker()
         goal_sphere.header.frame_id = self.base_frame
         goal_sphere.header.stamp = d0.header.stamp
@@ -631,7 +620,6 @@ class CartHandleGoalPoseSelectorZed(Node):
         goal_sphere.color.b = 1.0
         markers.markers.append(goal_sphere)
 
-        # goal heading arrow at goal pose
         markers.markers.append(
             self.make_arrow_marker(
                 marker_id=31,

@@ -34,11 +34,11 @@ class BlueBlobDetectorZed(Node):
         self.declare_parameter('log_depth_debug', True)
 
         # HSV
-        self.declare_parameter('h_min', 92)
-        self.declare_parameter('h_max', 128)
-        self.declare_parameter('s_min', 34)
+        self.declare_parameter('h_min', 72)
+        self.declare_parameter('h_max', 132)
+        self.declare_parameter('s_min', 138)
         self.declare_parameter('s_max', 255)
-        self.declare_parameter('v_min', 169)
+        self.declare_parameter('v_min', 199)
         self.declare_parameter('v_max', 255)
 
         # Blob filtering

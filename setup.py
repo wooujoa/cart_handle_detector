@@ -27,6 +27,10 @@ setup(
             'blue_rect_detector = cart_handle_detector.blue_rect_detector:main',
             'hsv_debug = cart_handle_detector.hsv_debug:main',
             'cart_handle_detect = cart_handle_detector.cart_handle_detect:main',
+            'blue_dot_zed_calib = cart_handle_detector.blue_dot_zed_calib:main',
+            'cart_detect_pub = cart_handle_detector.cart_detect_pub:main',
+            'yellow_cart_detect = cart_handle_detector.yellow_cart_detect:main',
+            'yellow_detect = cart_handle_detector.yellow_detect:main',
         ],
     },
 )
