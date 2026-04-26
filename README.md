@@ -1,6 +1,6 @@
 # Cart Handle Detector 실행 명령어 정리
 
-이 문서는 카트 손잡이 feature 구성에 따라 `feature_detect`, `cart_detect`를 실행하는 명령어를 정리한 것이다.
+이 문서는 카트 손잡이 feature 구성에 따라 `feature_detect`, `cart_detect`를 실행하는 명령어를 정리한 것.
 
 ---
 
