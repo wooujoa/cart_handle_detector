@@ -126,7 +126,7 @@ class FeatureDetectPurpleGreen(Node):
 
         # Purple is about 7.5cm before center green.
         # If you re-measure this, change marker_gap_cm only.
-        self.declare_parameter('marker_gap_cm', 7.5)
+        self.declare_parameter('marker_gap_cm', 11.2)
         self.declare_parameter('purple_width_cm', 3.0)
         self.declare_parameter('green_width_cm', 3.0)
 
@@ -139,12 +139,12 @@ class FeatureDetectPurpleGreen(Node):
         # ============================================================
         # Pair and pattern constraints
         # ============================================================
-        self.declare_parameter('min_pair_dist_px', 15.0)
-        self.declare_parameter('max_pair_dist_px', 180.0)
+        self.declare_parameter('min_pair_dist_px', 18.0)
+        self.declare_parameter('max_pair_dist_px', 260.0)
 
         # p0/p1 are estimated using purple-green distance.
         # Reject if endpoint is too far outside image.
-        self.declare_parameter('endpoint_margin_px', 45.0)
+        self.declare_parameter('endpoint_margin_px', 80.0)
 
         # Color validation along the purple->green axis.
         self.declare_parameter('pattern_corridor_half_width_px', 28.0)
@@ -153,14 +153,14 @@ class FeatureDetectPurpleGreen(Node):
         #   [0, purple_start], [purple_end, green_start], [green_end, handle_length]
         self.declare_parameter('min_yellow_total_pixels', 80)
         self.declare_parameter('min_yellow_left_pixels', 20)
-        self.declare_parameter('min_yellow_middle_pixels', 4)
+        self.declare_parameter('min_yellow_middle_pixels', 10)
         self.declare_parameter('min_yellow_right_pixels', 25)
 
         self.declare_parameter('min_purple_pixels', 8)
         self.declare_parameter('min_green_pixels', 8)
 
         # middle yellow is physically short now, so do not require high balance.
-        self.declare_parameter('min_lr_yellow_balance', 0.25)
+        self.declare_parameter('min_lr_yellow_balance', 0.15)
 
         # Component band apparent length along axis. Relaxed for far/rotated views.
         self.declare_parameter('check_band_length', True)
